@@ -1,0 +1,24 @@
+# OrbitDecay MLOps - Base Dependencies
+# Author: Hilal Alpak
+# Core Python packages for all services
+
+# Core utilities
+python-dateutil==2.8.2
+pytz==2023.3
+tqdm==4.66.1
+requests==2.31.0
+
+# Configuration
+pyyaml==6.0.1
+python-dotenv==1.0.0
+sqlalchemy==2.0.25
+psycopg2-binary==2.9.9
+
+# Security
+cryptography==42.0.4
+python-jose==3.3.0
+
+# Monitoring
+prometheus-client==0.19.0
+py-healthcheck>=1.10.1
+

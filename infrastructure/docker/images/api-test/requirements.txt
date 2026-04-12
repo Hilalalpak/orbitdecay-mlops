@@ -1,0 +1,66 @@
+# OrbitDecay MLOps - Test API Dependencies
+# Author: Hilal Alpak
+# Testing and CI/CD packages
+
+# Web framework
+fastapi>=0.104.0,<1.0.0
+pydantic>=2.5.0,<3.0.0
+
+# Web server
+uvicorn[standard]>=0.24.0,<1.0.0
+gunicorn>=21.0.0,<22.0.0
+
+# File handling
+python-multipart>=0.0.6
+aiofiles>=23.0.0,<24.0.0
+
+# HTTP client
+httpx>=0.25.0,<1.0.0
+
+# Data data_processing
+pandas==2.1.4
+numpy==1.26.4
+joblib==1.3.0
+
+# Machine learning
+scikit-learn==1.3.2
+tensorflow>=2.10.0,<3.0.0
+mlflow==2.10.0
+
+# Space calculations
+skyfield==1.48
+
+# Storage
+boto3==1.34.85
+redis==5.0.1
+
+# Web scraping
+beautifulsoup4==4.12.3
+lxml==4.9.4
+
+# Task scheduling
+apscheduler>=3.10.0,<4.0.0
+
+# Atmospheric modeling
+nrlmsise00
+
+# Data processing (pipeline dependency)
+polars==0.20.6
+
+# Logging
+structlog>=23.2.0
+
+# Testing
+pytest==8.0.2
+pytest-asyncio==0.23.5
+pytest-cov==4.1.0
+
+# Development tools
+ipython==8.12.3
+jupyter==1.0.0
+
+# Code quality
+black==24.3.0
+mypy==1.8.0
+flake8==7.0.0
+pre-commit==3.6.0

@@ -1,0 +1,13 @@
+# OrbitDecay MLOps - MLflow Dependencies
+# Author: Hilal Alpak
+# MLflow server and tracking
+
+# MLflow core
+mlflow==2.10.0
+
+# Storage & Database Drivers (BUNLAR EKSİKTİ)
+boto3
+psycopg2-binary
+
+# CRITICAL FIX for MinIO (BU SATIR DÖNEN DAİRE SORUNUNU ÇÖZER)
+urllib3<2.0.0
