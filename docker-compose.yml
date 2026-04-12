@@ -1,0 +1,512 @@
+# Services
+# ├─ base          shared base image, not started directly
+# ├─ postgres      main database — app data + MLflow metadata
+# ├─ minio         S3-compatible storage for models and datasets
+# ├─ minio-setup   one-shot init container, creates buckets then exits
+# ├─ mlflow        experiment tracking and model registry (port 5001)
+# ├─ api-dev       dev API with hot reload (port 8000)
+# ├─ api-test      test environment, Jenkins SSHes in here (port 8002)
+# ├─ api-prod      production API behind nginx (port 8001)
+# ├─ pipeline      on-demand ML pipeline orchestrator, exits when done
+# ├─ scheduler     daily report generator, runs at 17:30 Istanbul time
+# ├─ nginx         reverse proxy, TLS termination (prod only)
+# ├─ prometheus    metrics scraper (port 9090)
+# ├─ grafana       dashboards (port 3001)
+# ├─ alertmanager  alert routing
+# ├─ gitea         self-hosted git server (port 3000)
+# └─ jenkins       CI/CD, triggers on Gitea webhooks (port 8081)
+#
+# Profiles: dev | test | prod | build-only
+# All volumes are external — create them manually before first run.
+
+networks:
+  orbitdecay-network:
+    ipam:
+      config:
+        - subnet: 172.24.0.0/16
+
+services:
+  base:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/images/base/Dockerfile
+    image: orbitdec-foundation:latest
+    container_name: orbitdec-foundation-builder
+    profiles: ["build-only"]
+
+  # Storage & Database
+  minio:
+    restart: always
+    image: minio/minio:RELEASE.2024-09-09T16-59-28Z
+    container_name: orbitdec-minio-main
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      orbitdecay-network:
+        ipv4_address: 172.24.0.3
+    env_file:
+      - .env
+    command: server /data --console-address ':9001' --address ':9000'
+    environment:
+      - MINIO_ROOT_USER=${AWS_ACCESS_KEY_ID}
+      - MINIO_ROOT_PASSWORD=${AWS_SECRET_ACCESS_KEY}
+    volumes:
+      - orbitdecay_minio_data:/data
+    profiles: ["dev", "test", "prod"]
+
+  minio-setup:
+    image: minio/mc:RELEASE.2024-09-16T17-43-14Z
+    container_name: orbitdec-minio-setup
+    networks:
+      orbitdecay-network:
+        ipv4_address: 172.24.0.4
+    env_file:
+      - .env
+    depends_on:
+      - minio
+    volumes:
+      - ./infrastructure/docker/scripts/minio-setup.sh:/setup.sh
+      - ./infrastructure/docker/mc_config:/root/.mc
+    entrypoint: [ "/bin/bash", "/setup.sh" ]
+    profiles: ["dev", "test", "prod"]
+
+  postgres:
+    restart: always
+    image: postgres:16.1-alpine
+    container_name: orbitdec-postgres-main
+    ports:
+      - "5432:5432"
+    networks:
+      orbitdecay-network:
+        ipv4_address: 172.24.0.5
+    env_file:
+      - .env
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - orbitdecay_postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/database/sql_scripts:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    profiles: ["dev", "test", "prod"]
+
+  # Core MLOps
+  mlflow:
+    restart: always
+    build:
+      context: .
+      dockerfile: infrastructure/docker/images/mlflow/Dockerfile
+    image: orbitdec-mlflow:latest
+    container_name: orbitdec-mlflow-server
+    ports:
+      - "5001:5000"
+    networks:
+      orbitdecay-network:
+        ipv4_address: 172.24.0.6
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+      - S3_MLFLOW_BUCKET=${S3_MLFLOW_BUCKET}
+      - MLFLOW_S3_ENDPOINT_URL=${MLFLOW_S3_ENDPOINT_URL_CONTAINER}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    volumes:
+      - ./orbitdecay_mlruns:/app/mlruns
+      - ./orbitdecay_artifacts:/app/artifacts
+    command: >
+      mlflow server
+      --backend-store-uri postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      --default-artifact-root s3://${S3_MLFLOW_BUCKET}/
+      --serve-artifacts
+      --host 0.0.0.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_started
+    profiles: ["dev", "test", "prod"]
+
+  api-dev:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/images/api-dev/Dockerfile
+    image: orbitdec-api:dev-latest
+    container_name: orbitdec-api-dev
+    hostname: orbitdec-api-dev
+    restart: always
+    ports:
+      - "8000:8000"
+    networks:
+      orbitdecay-network:
+        ipv4_address: 172.24.0.8
+    env_file:
+      - .env
+    environment:
+      - ENVIRONMENT=dev
+      - MLFLOW_EXPERIMENT_NAME=Satellite_Dev_Experiments
+      - PYTHONPATH=/app
+      - MLFLOW_S3_ENDPOINT_URL_CONTAINER=${MLFLOW_S3_ENDPOINT_URL_CONTAINER}
+      - MLFLOW_TRACKING_URI_CONTAINER=${MLFLOW_TRACKING_URI_CONTAINER}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    volumes:
+      - ./src:/app/src
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./infrastructure/config:/app/infrastructure/config
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+      minio-setup:
+        condition: service_started
+    profiles: ["dev"]
+    command: ["uvicorn", "src.api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+  pipeline:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/images/pipeline/Dockerfile
+    image: orbitdec-pipeline:latest
+    container_name: orbitdec-pipeline-processor
+    networks:
+      orbitdecay-network:
+        ipv4_address: 172.24.0.11
+    restart: no
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+      - SPACE_TRACK_USERNAME=${SPACE_TRACK_USERNAME}
+      - SPACE_TRACK_PASSWORD=${SPACE_TRACK_PASSWORD}
+      - SPACE_TRACK_BASE_URL=${SPACE_TRACK_BASE_URL_DEV}
+      - MLFLOW_S3_ENDPOINT_URL=${MLFLOW_S3_ENDPOINT_URL_CONTAINER}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI_CONTAINER}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-setup:
+        condition: service_started
+      mlflow:
+        condition: service_started
+    volumes:
+      - ./src:/app/src:ro
+      - ./reports:/app/reports
+      - ./logs:/app/logs
+      - ./infrastructure/config:/app/infrastructure/config
+    profiles: ["dev", "test", "prod"]
+
+  # Monitoring
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: orbitdec-prometheus-main
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    networks:
+      orbitdecay-network:
+        ipv4_address: 172.24.0.18
+    env_file:
+      - .env
+    environment:
+      - TZ=Europe/Istanbul
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yaml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=168h'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    volumes:
+      - ./infrastructure/monitoring/prometheus:/etc/prometheus
+      - orbitdecay_prometheus_data:/prometheus
+    profiles: ["test", "prod"]
+
+  grafana:
+    image: grafana/grafana:10.3.3
+    container_name: orbitdec-grafana-main
+    restart: always
+    ports:
+      - "3001:3000"
+    networks:
+      orbitdecay-network:
+        ipv4_address: 172.24.0.10
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel,grafana-worldmap-panel
+    volumes:
+      - orbitdecay_grafana_data:/var/lib/grafana
+      - ./infrastructure/docker/grafana/provisioning:/etc/grafana/provisioning
+    profiles: ["test", "prod"]
+
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: orbitdec-alertmanager-main
+    restart: unless-stopped
+    ports:
+      - "9093:9093"
+    networks:
+      orbitdecay-network:
+        ipv4_address: 172.24.0.19
+    env_file:
+      - .env
+    environment:
+      - TZ=Europe/Istanbul
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yaml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-base_url=http://localhost:9093'
+      - '--log.level=debug'
+    volumes:
+      - ./infrastructure/monitoring/alertmanager:/etc/alertmanager
+      - orbitdecay_alertmanager_data:/alertmanager
+    profiles: ["test", "prod"]
+    depends_on:
+      - prometheus
+
+  # Auxiliary services
+  gitea:
+    restart: always
+    image: gitea/gitea:1.21.1
+    container_name: orbitdec-gitea-main
+    ports:
+      - "3000:3000"
+      - "2222:22"
+    networks:
+      orbitdecay-network:
+        ipv4_address: 172.24.0.7
+    env_file:
+      - .env
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+      - GITEA__database__DB_TYPE=postgres
+      - GITEA__database__HOST=postgres:5432
+      - GITEA__database__NAME=${POSTGRES_DB}
+      - GITEA__database__USER=${POSTGRES_USER}
+      - GITEA__database__PASSWD=${POSTGRES_PASSWORD}
+      - GITEA__webhook__ALLOWED_HOST_LIST=*
+    volumes:
+      - orbitdecay_gitea_data:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    profiles: ["dev", "test", "prod"]
+
+  jenkins:
+    restart: always
+    build:
+      context: .
+      dockerfile: infrastructure/docker/images/jenkins/Dockerfile
+    image: orbitdec-jenkins:latest
+    container_name: orbitdec-jenkins-main
+    privileged: true
+    ports:
+      - "8081:8080"
+      - "50000:50000"
+    networks:
+      orbitdecay-network:
+        ipv4_address: 172.24.0.14
+    env_file:
+      - .env
+    environment:
+      - JENKINS_ADMIN_USER=${JENKINS_ADMIN_ID}
+      - JENKINS_ADMIN_PASSWORD=${JENKINS_ADMIN_PASSWORD}
+      - JAVA_OPTS=-Dhudson.security.csrf.DefaultCrumbIssuer.EXCLUDE_SESSION_ID=true -Djenkins.install.runSetupWizard=false
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - orbitdecay_jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./reports:/var/jenkins_home/workspace/reports
+    depends_on:
+      - gitea
+    profiles: ["test"]
+
+  api-test:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/images/api-test/Dockerfile
+      args:
+        - TEST_USER_PASSWORD=${TEST_USER_PASSWORD}
+    image: orbitdec-api:test-latest
+    container_name: orbitdec-api-test
+    hostname: orbitdec-api-test
+    privileged: true
+    ports:
+      - "8002:8000"
+      - "2223:22"
+    networks:
+      orbitdecay-network:
+        ipv4_address: 172.24.0.17
+    env_file:
+      - .env
+    security_opt:
+      - seccomp:unconfined
+    tmpfs:
+      - /run
+      - /run/lock
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
+      - ./api-test/home/.ssh:/home/test_user/.ssh
+      - ./infrastructure/config:/app/infrastructure/config
+    environment:
+      - ENVIRONMENT=test
+      - MLFLOW_S3_ENDPOINT_URL=${MLFLOW_S3_ENDPOINT_URL_CONTAINER}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    profiles: ["test"]
+    command: [ "/usr/local/bin/test_init_script.sh" ]
+
+
+  api-prod:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/images/api-prod/Dockerfile
+      args:
+        - PROD_USER_PASSWORD=${PROD_USER_PASSWORD}
+    image: orbitdec-api:prod-latest
+    container_name: orbitdec-api-prod
+    hostname: orbitdec-api-prod
+    privileged: true
+    ports:
+      - "8001:8000"
+      - "2224:22"
+    networks:
+      orbitdecay-network:
+        ipv4_address: 172.24.0.15
+    env_file:
+      - .env
+    security_opt:
+      - seccomp:unconfined
+    tmpfs:
+      - /run
+      - /run/lock
+    volumes:
+      - ./src:/app/src
+      - ./api-prod/home/.ssh:/home/prod_user/.ssh
+    environment:
+      - ENVIRONMENT=prod
+      - MLFLOW_S3_ENDPOINT_URL=${MLFLOW_S3_ENDPOINT_URL_CONTAINER}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    profiles: ["prod"]
+    command: [ "/usr/local/bin/prod_init_script.sh" ]
+    restart: unless-stopped
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/images/api-prod/Dockerfile
+    container_name: orbitdec-scheduler-main
+    networks:
+      orbitdecay-network:
+        ipv4_address: 172.24.0.21
+    env_file:
+      - .env
+    environment:
+      - PYTHONPATH=/app
+      - TZ=Europe/Istanbul
+      - POSTGRES_HOST=postgres
+      - MLFLOW_TRACKING_URI=http://mlflow:5000
+      - MLFLOW_S3_ENDPOINT_URL=${MLFLOW_S3_ENDPOINT_URL_CONTAINER}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    depends_on:
+      - postgres
+      - mlflow
+    volumes:
+      - ./reports:/app/reports
+      - ./src:/app/src
+      - ./logs:/app/logs
+      - ./infrastructure/config:/app/infrastructure/config
+    healthcheck:
+      test: [ "CMD", "python", "-c", "from src.scheduler.daily_reporter import DailyReportScheduler; print('Scheduler healthy')" ]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
+    command: python -m src.scheduler.daily_reporter
+    restart: unless-stopped
+    profiles: [ "prod" ]
+
+  # Load balancer
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: orbitdec-nginx-main
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    networks:
+      orbitdecay-network:
+        ipv4_address: 172.24.0.20
+    env_file:
+      - .env
+    environment:
+      - TZ=Europe/Istanbul
+    volumes:
+      - ./infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infrastructure/nginx/conf.d/api.conf:/etc/nginx/conf.d/api.conf:ro
+      - ./infrastructure/nginx/tls:/etc/tls:ro
+      - ./logs/nginx:/var/log/nginx
+    profiles: ["prod"]
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/nginx_status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+
+volumes:
+  orbitdecay_postgres_data:
+    external: true
+  orbitdecay_minio_data:
+    external: true
+  orbitdecay_mlruns:
+    external: true
+  orbitdecay_artifacts:
+    external: true
+  orbitdecay_gitea_data:
+    external: true
+  orbitdecay_jenkins_home:
+    external: true
+  orbitdecay_prometheus_data:
+    external: true
+  orbitdecay_alertmanager_data:
+    external: true
+  orbitdecay_grafana_data:
+    external: true
+
+
+
+# IP ranges — not enforced, just a reference for when I add more services
+# -----------------------------------------------------------------------
+# | Range          | Category            | Services                    |
+# |----------------|---------------------|-----------------------------|
+# | 172.24.0.1-9   | Network Core        | nginx, gateway              |
+# | 172.24.0.10-19 | Data & Storage      | postgres, minio             |
+# | 172.24.0.20-29 | ML Platform         | mlflow, pipeline            |
+# | 172.24.0.30-39 | API Services        | api-dev, api-prod, api-test |
+# | 172.24.0.40-49 | Monitoring Stack    | prometheus, grafana         |
+# | 172.24.0.50-59 | DevOps Tools        | jenkins, gitea              |
+# | 172.24.0.60-69 | Auxiliary Services  | alertmanager, helpers       |
+# | 172.24.0.70-99 | Reserved/Future     | expansion space             |
