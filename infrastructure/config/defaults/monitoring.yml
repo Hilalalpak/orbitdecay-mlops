@@ -1,0 +1,23 @@
+monitoring:
+  smart_collection:
+    enable_cache_monitoring: true
+    cache_hit_rate_threshold: 0.8
+    cache_size_alert_mb: 800
+
+  performance:
+    collection_time_threshold: 300
+
+  api_usage_tracking: true
+  compliance_alerts: true
+
+  alerts:
+    failed_requests_rate: 0.1
+    high_risk_satellites: 10
+    processing_time_threshold: 3600
+
+  health_checks:
+    enabled: true
+
+  metrics:
+    enable_prometheus: true
+    collection_interval: 30

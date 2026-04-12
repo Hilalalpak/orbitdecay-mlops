@@ -1,0 +1,13 @@
+# Smart collection configuration
+smart_collection:
+  enable_duplicate_detection: true
+
+  incremental_updates:
+    enabled: true
+    max_incremental_days: 7
+    overlap_hours: 72
+    buffer_size: 10000
+
+  cache:
+    force_refresh_days: 30
+    max_cache_size_mb: 1000

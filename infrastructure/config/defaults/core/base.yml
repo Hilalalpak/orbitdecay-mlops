@@ -1,0 +1,24 @@
+environment:
+  name: "${ENVIRONMENT}"
+
+# Scheduling config
+scheduling:
+  daily_reports:
+    schedule: "0 6 * * *"
+
+  model_training:
+    enabled: true
+
+# Logging
+logging:
+  level: "${LOG_LEVEL:-INFO}"
+
+  files:
+    main: 'logs/space_track.log'
+    pipeline: 'logs/pipeline_execution.log'
+    api: 'logs/api_server.log'
+    features: 'logs/feature_engineering.log'
+    timeseries: 'logs/timeseries_creation.log'
+    space_weather: 'logs/space_weather_processing.log'
+    collection: 'logs/collection.log'
+    compliance: 'logs/quota_manager.log'

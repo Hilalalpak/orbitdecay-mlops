@@ -1,0 +1,22 @@
+# ML models configuration
+machine_learning:
+  lstm:
+    enabled: true
+    sequence_length: 30
+    lstm_units: [ 128, 64, 32 ]
+    attention_heads: 8
+    dropout_rate: 0.3
+    learning_rate: 0.001
+    batch_size: 32
+    epochs: 100
+    patience: 15
+
+  features:
+    enable_orbital_features: true
+
+  # ML-specific risk score thresholds (for model output)
+  risk_score_thresholds:
+    critical: 0.8
+    high: 0.6
+    medium: 0.4
+    low: 0.0

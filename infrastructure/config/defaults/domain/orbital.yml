@@ -1,0 +1,91 @@
+# Orbital domain and processing configuration
+orbital:
+  # Domain definitions (altitude ranges, special orbits, etc.)
+  altitude_ranges:
+    vleo_max: 160
+    low_leo_max: 300
+    std_leo_max: 500
+    high_leo_max: 800
+    very_high_leo_max: 2000
+    geo_min: 35786
+
+  inclination_ranges:
+    equatorial_max: 20
+    inclined_max: 70
+    high_inclined_max: 85
+    polar_max: 95
+
+  eccentricity_ranges:
+    circular_max: 0.01
+    near_circular_max: 0.1
+    elliptical_max: 0.5
+
+  risk_thresholds:
+    critical_altitude: 200.0
+    operational_threshold: 250.0
+    low_altitude_warning: 400.0
+
+  special_orbits:
+    sun_synchronous:
+      inclination_range: [ 96, 98 ]
+      altitude_range: [ 600, 800 ]
+      period_range: [ 95, 105 ]
+
+    molniya:
+      inclination: 63.4
+      tolerance: 2
+      eccentricity_threshold: 0.5
+      period_range: [ 700, 740 ]
+
+    navigation:
+      altitude_range: [ 19000, 21000 ]
+      inclination_range: [ 50, 65 ]
+
+  # Orbital processing operations (cleaning, segmentation, propagation)
+  orbital_cleaning:
+    active:
+      max_eccentricity: 1.0
+      bstar_limit: 0.005
+      allow_negative_bstar: true
+
+    decayed:
+      max_eccentricity: 0.2
+      bstar_limit: 0.01
+      allow_negative_bstar: false
+
+  orbital_segmentation:
+    active:
+      max_gap_hours: 24        # 1 day
+      maneuver_delta_a_km: 0.001  # 10 meter → too sensitive
+
+    decayed:
+      max_gap_hours: 120       # 5 days
+      maneuver_delta_a_km: 0.1
+
+  segment_filter:
+    active:
+      skip_filtering: true
+
+    decayed:
+      skip_filtering: false
+      min_duration_days: 30
+      max_latency_hours: 48
+
+  orbital_propagation:
+    static_columns_to_keep:
+      common: 
+        - "norad_cat_id"
+        - "object_type"
+        - "object_name"
+        - "rcs_size"
+        - "country_code"
+        - "launch_date"
+        - "creation_date"
+        - "decay_date"
+        - "segment_id"
+    
+    active:
+      grid_interval_hours: 1
+
+    decayed:
+      grid_interval_hours: 4

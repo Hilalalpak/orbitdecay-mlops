@@ -1,0 +1,13 @@
+# Physical constants and atmospheric configuration
+atmospheric:
+  nrlmsise00:
+    fallback_values:
+      f107: 150.0
+      f107a: 150.0
+      ap: 7.0
+
+physical_constants:
+  earth:
+    radius_km: 6371.0
+    equatorial_radius_km: 6378.0
+    gravitational_parameter: 398600.4418

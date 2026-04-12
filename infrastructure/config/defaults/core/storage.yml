@@ -1,0 +1,28 @@
+# S3/MinIO storage configuration
+storage:
+  s3:
+    endpoint_url: "${MLFLOW_S3_ENDPOINT_URL_CONTAINER}"
+    access_key: "${AWS_ACCESS_KEY_ID}"
+    secret_key: "${AWS_SECRET_ACCESS_KEY}"
+
+# Data paths
+paths:
+  s3_buckets:
+    pipeline_cache: "pipeline-cache"
+    pipeline_state: "pipeline-state"
+    satellite_data: "orbit-data"
+    env_data: "environment-data"
+    metadata: "smart-metadata"
+
+  s3_prefixes:
+    omm_leo: "omm/leo"
+    orbit_cache: "cache/orbit-batches"
+    env_cache: "cache/environment-data"
+    env_processed: "processed"
+    env_featured: "featured"
+    satcat: "catalog/satellites"
+    api_compliance: "api-compliance"
+    env_feature_metadata: "run-history/environment-featured"
+    env_processed_metadata: "run-history/environment-processed"
+    training_data_metadata: "run-history/training-data"
+    model_training_metadata: "run-history/model-training"

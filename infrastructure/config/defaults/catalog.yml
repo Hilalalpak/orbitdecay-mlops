@@ -1,0 +1,20 @@
+dynamic_satellite_selection:
+  random_seed: 42
+
+  categories:
+    decayed:
+      count: 250
+      description: "Decayed satellites (2005-2024)"
+      query: "class/satcat/DECAY/%3E2005-01-01/LAUNCH//%3E2005-01-01%2C%3C2024-09-01/orderby/NORAD_CAT_ID%20asc/"
+
+    active:
+      count: 250
+      description: "Active satellites (2005-2024)"
+      query: "class/satcat/DECAY/null-val/LAUNCH//%3E2005-01-01%2C%3C2024-09-01/orderby/NORAD_CAT_ID%20asc/"
+
+satellite_catalog:
+  fallback_satellites: [
+    25544, 43013, 40023, 44497, 39468, 33493, 43100, 43885, 43886, 44414,
+    44732, 44914, 44921, 44923, 44966, 45058, 45075, 45092, 45373, 45407]
+
+  use_dynamic_selection: "${ENABLE_DYNAMIC_SELECTION:-true}"

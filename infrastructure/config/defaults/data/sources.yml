@@ -1,0 +1,41 @@
+# Data sources configuration
+data_sources:
+  space_track:
+    base_url: "${SPACE_TRACK_BASE_URL}"
+    username: "${SPACE_TRACK_USERNAME}"
+    password: "${SPACE_TRACK_PASSWORD}"
+
+    max_daily_requests: 200
+    hourly_limit: 30
+    burst_limit: 15
+    api_delay: 1
+    rate_limit_buffer: 5
+    session_timeout: 60
+    max_retries: 3
+
+    batch_timeout_multiplier: 3.0
+    retry_backoff_factor: 0.5
+
+    full_batch_size: 10
+    incremental_batch_size: 50
+    use_test_server: false
+
+    endpoints:
+      auth_path: "ajaxauth/login"
+      query_base: "basicspacedata/query"
+      current_data: "class/gp"
+      historical_data: "class/gp_history"
+      deprecated_endpoints:
+        - "class/tle_latest"
+        - "class/tle"
+        - "class/omm"
+
+  solar_flux:
+    url: "https://spaceweather.gc.ca/solar_flux_data/daily_flux_values/fluxtable.txt"
+
+  kp_indices:
+    url: "https://kp.gfz-potsdam.de/app/files/Kp_ap_since_1932.txt"
+
+  sunspot:
+    url: "https://www.sidc.be/SILSO/INFO/sndtotcsv.php"
+

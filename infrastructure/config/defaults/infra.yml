@@ -1,0 +1,21 @@
+backup:
+  enable_metadata_backup: true
+  metadata_backup_interval_hours: 12
+  metadata_backup_retention_days: 365
+  versioned_files: true
+  keep_versions: 5
+
+# S3/MinIO storage
+storage:
+  s3:
+    endpoint_url: "${MLFLOW_S3_ENDPOINT_URL_CONTAINER}"
+    access_key: "${AWS_ACCESS_KEY_ID}"
+    secret_key: "${AWS_SECRET_ACCESS_KEY}"
+    region: "us-east-1"
+    signature_version: "s3v4"
+
+  connection:
+    connect_timeout: 30
+    read_timeout: 30
+    max_retry_attempts: 3
+    retry_delay: 5

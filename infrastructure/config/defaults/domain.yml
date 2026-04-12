@@ -1,0 +1,54 @@
+# Atmospheric const.
+atmospheric:
+  nrlmsise00:
+    fallback_values:
+      f107: 150.0
+      f107a: 150.0
+      ap: 7.0
+
+physical_constants:
+  earth:
+    radius_km: 6371.0
+    gravitational_parameter: 398600.4418
+
+# Orbital params
+orbital:
+  altitude_ranges:
+    vleo_max: 160
+    low_leo_max: 300
+    std_leo_max: 500
+    high_leo_max: 800
+    very_high_leo_max: 2000
+    geo_min: 35786
+
+  inclination_ranges:
+    equatorial_max: 20
+    inclined_max: 70
+    high_inclined_max: 85
+    polar_max: 95
+
+  eccentricity_ranges:
+    circular_max: 0.01
+    near_circular_max: 0.1
+    elliptical_max: 0.5
+
+  risk_thresholds:
+    critical_altitude: 200.0
+    operational_threshold: 250.0
+    low_altitude_warning: 400.0
+
+  special_orbits:
+    sun_synchronous:
+      inclination_range: [ 96, 98 ]
+      altitude_range: [ 600, 800 ]
+      period_range: [ 95, 105 ]
+
+    molniya:
+      inclination: 63.4
+      tolerance: 2
+      eccentricity_threshold: 0.5
+      period_range: [ 700, 740 ]
+
+    navigation:
+      altitude_range: [ 19000, 21000 ]
+      inclination_range: [ 50, 65 ]

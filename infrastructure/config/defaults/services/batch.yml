@@ -1,0 +1,17 @@
+# Batch processing and parallel execution configuration
+parallel:
+  max_workers: "${MAX_WORKERS:-8}"
+
+batch_limits:
+  dev:
+    max_satellites: 1000
+    batch_size: 20
+    daily_satellite_limit: 1500
+  test:
+    max_satellites: 1000
+    batch_size: 5
+    daily_satellite_limit: 1500
+  prod:
+    max_satellites: 500
+    batch_size: 10
+    daily_satellite_limit: 1500

@@ -1,0 +1,9 @@
+# MLflow configuration
+mlflow:
+  tracking_uri: "${MLFLOW_TRACKING_URI_CONTAINER}"
+  experiment_name: "Satellite_Dev_Experiments"
+
+  model_registry:
+    default_model_name: "SatelliteSurvivalGB"
+    # Note: production_run_id should be set in environment-specific configs
+    # production_run_id: "${MLFLOW_PRODUCTION_RUN_ID:-f5f50b2fdd054883aa0d25f7e3690903}"

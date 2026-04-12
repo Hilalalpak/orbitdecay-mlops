@@ -1,0 +1,27 @@
+# API service configuration
+api:
+  # Server configuration
+  host: "${API_HOST:-0.0.0.0}"
+  port: "${API_PORT:-8000}"
+  
+  # Request limits
+  max_request_size: "10MB"
+  timeout_seconds: 300
+  
+  # Rate limiting
+  rate_limits:
+    default: "100/minute"
+    prediction: "50/minute"
+    batch: "10/minute"
+  
+  # CORS settings
+  cors:
+    allow_origins: ["*"]
+    allow_methods: ["GET", "POST", "PUT", "DELETE"]
+    allow_headers: ["*"]
+
+# API defaults
+api_defaults:
+  data_sources:
+    flux:
+      header_lines_to_skip: 2

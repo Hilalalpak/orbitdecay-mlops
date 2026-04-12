@@ -1,0 +1,48 @@
+processing:
+  omm:
+    numeric_fields:
+      - "mean_motion"
+      - "eccentricity"
+      - "inclination"
+      - "arg_of_pericenter"
+      - "mean_anomaly"
+      - "bstar"
+      - "mean_motion_dot"
+      - "mean_motion_ddot"
+      - "semimajor_axis"
+      - "semi_major_axis"
+      - "period"
+      - "apoapsis"
+      - "periapsis"
+      - "altitude"
+      - "latitude"
+      - "longitude"
+    enable_orbit_classification: True
+    enable_position_calculation: True
+    filter_tba_objects: true
+
+  batch_limits:
+    dev:
+      max_satellites: "${MAX_SATELLITES}"
+      batch_size: 10
+      daily_satellite_limit: 1500
+    test:
+      max_satellites: 500
+      batch_size: 5
+      daily_satellite_limit: 1500
+    prod:
+      max_satellites: 500
+      batch_size: 10
+      daily_satellite_limit: 1500
+
+  date_range:
+    default_start: "2005-01-01"
+    default_end: "2025-01-01"
+
+  parallel:
+    max_workers: "${MAX_WORKERS:-8}"
+
+  validation:
+    enable_quality_checks: true
+    min_data_points: 10
+    max_gap_days: 30

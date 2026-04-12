@@ -1,0 +1,50 @@
+satellite_selection:
+  random_seed: 47
+
+  solar_cycle_regimes:
+    high_drag:  # Solar Max - high atmospheric drag
+      - [2012, 2015]  # Cycle 23-24 peak
+      - [2023, 2025]  # Cycle 25 onset
+    low_drag:   # Solar Min - low atmospheric drag
+      - [2007, 2010]  # Cycle 23-24 trough
+      - [2018, 2021]  # Cycle 24-25 trough
+
+  calibration_period_bands:
+    low_max: 95    # ~300-400 km
+    mid_max: 100   # ~400-500 km
+
+  categories:
+    target:
+      count: 10
+      description: "Decayed satellites (2005-2024)"
+      query: "class/satcat/LAUNCH/%3E2005-01-01/\
+                    DECAY/%3E2005-01-01/\
+                    PERIOD/%3C128/\
+                    RCS_SIZE/LARGE,MEDIUM/\
+                    OBJECT_TYPE/PAYLOAD,ROCKET%20BODY/\
+                    orderby/NORAD_CAT_ID%20asc/format/json"
+
+    calibration:
+      count: 10
+      description: "Active satellites (2005-2024)"
+      query: "class/satcat/CURRENT/Y/\
+                    LAUNCH/%3E2005-01-01/\
+                    PERIOD/%3C128/\
+                    RCS_SIZE/LARGE,MEDIUM/\
+                    OBJECT_TYPE/PAYLOAD/\
+                    orderby/NORAD_CAT_ID%20asc/format/json"
+      anchor_calibration_ids:
+        - "25544"   # ISS
+        - "20580"   # Hubble
+        - "7646"    # Starlette
+        - "22824"   # Stella
+        - "8820"    # LAGEOS-1
+        - "22195"   # LAGEOS-2
+        - "34602"   # GOCE
+        - "39332"   # Swarm A
+        - "39333"   # Swarm B
+        - "39334"   # Swarm C
+        - "44235"   # Starlink v0.9
+
+satellite_catalog:
+  min_orbit_days: 60

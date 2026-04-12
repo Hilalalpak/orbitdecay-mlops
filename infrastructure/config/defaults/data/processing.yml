@@ -1,0 +1,55 @@
+# Core data processing configuration (OMM, validation, feature engineering)
+processing:
+  omm:
+    numeric_fields:
+      - "mean_motion"
+      - "eccentricity"
+      - "inclination"
+      - "arg_of_pericenter"
+      - "mean_anomaly"
+      - "bstar"
+      - "mean_motion_dot"
+      - "mean_motion_ddot"
+      - "semimajor_axis"
+      - "semi_major_axis"
+      - "period"
+      - "apoapsis"
+      - "periapsis"
+      - "altitude"
+      - "latitude"
+      - "longitude"
+      - "ra_of_asc_node"
+    
+    critical_columns:
+      - "mean_motion"
+      - "eccentricity"
+      - "inclination"
+      - "ra_of_asc_node"
+      - "arg_of_pericenter"
+      - "mean_anomaly"
+    
+    angular_columns:
+      - "ra_of_asc_node"
+      - "arg_of_pericenter"
+      - "mean_anomaly"
+    
+    sentinel_values:
+      - "999.9999"
+      - "9999.9999"
+      - "-999.9999"
+
+    enable_orbit_classification: true
+    enable_position_calculation: true
+    filter_tba_objects: true
+
+  date_range:
+    default_start: "2005-01-01"
+    default_end: "2025-01-01"
+
+  validation:
+    enable_quality_checks: true
+    min_data_points: 50
+    max_gap_days: 30
+
+  feature_engineering:
+    far_from_tle_minutes: 720  # 12 hours - threshold for is_far_from_tle flag
