@@ -1,0 +1,26 @@
+{
+	"version": "10",
+	"aliases": {
+		"gcs": {
+			"url": "https://storage.googleapis.com",
+			"accessKey": "YOUR-ACCESS-KEY-HERE",
+			"secretKey": "YOUR-SECRET-KEY-HERE",
+			"api": "S3v2",
+			"path": "dns"
+		},
+		"local": {
+			"url": "http://localhost:9000",
+			"accessKey": "",
+			"secretKey": "",
+			"api": "S3v4",
+			"path": "auto"
+		},
+		"minio": {
+			"url": "http://minio:9000",
+			"accessKey": "",
+			"secretKey": "",
+			"api": "s3v4",
+			"path": "auto"
+		}
+	}
+}
