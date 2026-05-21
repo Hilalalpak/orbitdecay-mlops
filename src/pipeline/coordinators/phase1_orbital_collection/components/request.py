@@ -1,28 +1,43 @@
 """
-This script is responsible for assembling the formal request object, combining
-configuration settings with the list of target satellites so the coordinator has everything it needs.
+ExecutionRequest factory for Phase 1.
+Isolates coordinator from global pipeline config details.
 """
 
-from structlog.stdlib import BoundLogger
-from src.pipeline.utilities.execution_request import ExecutionRequest
-from src.configuration.config_models import PipelineConfigModel
 from typing import List
+from structlog.stdlib import BoundLogger
+
+from src.shared import ExecutionRequest
+from src.shared.config.config_models import PipelineConfigModel
 
 
 class RequestBuilder:
-    def __init__(self, pipeline_cfg: PipelineConfigModel, execution_mode: str, logger: BoundLogger) -> None:
-        self.pipeline_cfg = pipeline_cfg
-        self.exec_mode = execution_mode
+    """Factory for creating ExecutionRequest objects with config and satellite targets."""
+
+    def __init__(self,
+                 pipeline_config: PipelineConfigModel,
+                 logger: BoundLogger) -> None:
+        self.pipeline_config = pipeline_config
         self.logger = logger
 
-    def build(self, target_satellites: List[int]) -> ExecutionRequest:
-        """Creates and configures a new ExecutionRequest instance based on the current pipeline settings and target list."""
-        self.logger.info(f"Building collection request for {len(target_satellites)} satellites...")
-
+    def build(self,
+              target_satellites: List[str],
+              active_ids: List[str]) -> ExecutionRequest:
+        """
+        Creates ExecutionRequest by merging satellite lists with pipeline config.
+        Returns immutable request object with traceable hash.
+        """
         req = ExecutionRequest.from_config(
-            pipeline_config=self.pipeline_cfg,
+            pipeline_config=self.pipeline_config,
+            input_data_type="orbital_raw",
+            source="space-track",
+            processing_stage="orbital_collection",
             satellite_ids=target_satellites,
-            execution_mode=self.exec_mode)
+            active_ids=active_ids)
 
-        self.logger.debug(f"Request details: {req.get_summary()}")
+        self.logger.debug(
+            "execution_request_built",
+            target_count=len(req.satellite_ids),
+            active_count=len(req.active_ids or []),
+            param_hash=req.hash[:8])
+
         return req

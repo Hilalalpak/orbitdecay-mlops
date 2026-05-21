@@ -1,42 +1,75 @@
 """
-This module acts as the brain of the operation, checking the cache to see if we
-really need to go out and fetch fresh data or if we can skip it.
+Cache decision manager and metadata persistence for Phase 1.
+Mediates between coordinator and core caching/metadata systems.
 """
+
 from structlog.stdlib import BoundLogger
-from src.domains.schemas.orbital_collection_schema import StrategyResult
-from src.core.caching.cache_manager import CacheManager
-from src.core.metadata_tracker import PipelineMetadataTracker
-from src.pipeline.utilities.execution_request import ExecutionRequest
-from typing import Dict, List, Union
 
-class CacheHandler:
+from src.domain.orbital.collection.contracts.strategy_result import BaseStrategyResult
+from src.pipeline.policies.collection_freshness_policy import CollectionFreshnessPolicy
+from src.shared import ExecutionRequest
+from src.pipeline.metadata.contracts.run_history import RunHistory
+from src.pipeline.contracts import ExecutionDecision
 
-    def __init__(self, cache_manager: CacheManager, metadata_tracker: PipelineMetadataTracker, logger: BoundLogger) -> None:
-        self.cache = cache_manager
+class CollectionCacheHandler:
+    """Resolves cache vs API strategy and records execution metadata."""
+
+    def __init__(self,
+                 collection_freshness_policy: CollectionFreshnessPolicy,
+                 logger: BoundLogger,
+                 metadata_service) -> None:
+
+        self.freshness_policy = collection_freshness_policy
         self.logger = logger
-        self.metadata = metadata_tracker
+        self.metadata_service=metadata_service
 
-    def choose(self, execution_request: ExecutionRequest) -> Dict[str, Union[bool, str]]:
-        """Consults the cache manager to determine the best strategy for handling this specific request."""
-        return self.cache.should_collect_data(execution_request)
+    def resolve_strategy(self, request: ExecutionRequest) -> ExecutionDecision:
+        """
+        Determines collection strategy via CollectionFreshnessPolicy.
+        Returns decision with mode, param_hash, and manifest if cached.
+        """
+        decision = self.freshness_policy.evaluate(
+            execution_request=request,
+            phase="orbital_collection")
+        self.logger.debug(
+            "strategy_resolved",
+            mode=decision.mode.value,
+            reason=decision.reason.value)
 
+        return decision
 
-    def store_execution_metadata(self, collection_result: StrategyResult, decision: Dict[str, Union[bool, str]], execution_request: ExecutionRequest, data_to_process: List[str]) -> None:
-        """Records metadata about how this collection was performed for tracking and audit purposes."""
-        if decision.get('collection_mode') == 'use_cached':
-            return
-
+    def record_lineage(
+        self,
+        result: BaseStrategyResult,
+        decision: ExecutionDecision,
+        request: ExecutionRequest) -> None:
+        """
+        Persists execution metadata for cache/incremental logic.
+        Fail-safe - metadata errors won't break the pipeline.
+        """
         try:
-            total_records = collection_result.total_records
+            record = RunHistory(
+                phase="orbital_collection",
+                source_id="orbital",
+                param_hash=result.param_hash,
+                filter_params=request.parameters,
+                manifest_files=result.manifest_files,
+                extra_metadata={
+                    "records_processed": result.total_records,
+                    "batch_files_created": len(result.manifest_files),
+                    "collection_strategy": decision.mode.value,
+                    "collection_mode": result.mode.value,
+                })
 
-            execution_details = {'processing_stage': 'orbital_collection',
-                                'records_processed': total_records,
-                                'batch_files_created': len(data_to_process) if collection_result.mode != 'incremental' else 0,
-                                'collection_strategy': decision.get('collection_mode'),
-                                'collection_mode': collection_result.mode}
+            self.metadata_service.record_collection_execution(record)
 
-            self.metadata.record_collection_execution(execution_request, execution_details)
+            self.logger.debug(
+                "metadata_persisted",
+                context="phase1_collection",
+                records=result.total_records)
 
         except Exception as meta_error:
-            self.logger.error(f"Metadata recording failed: {meta_error}", exc_info=True)
-            self.logger.warning("Execution continues, but lineage information may be incomplete.")
+            self.logger.warning(
+                "metadata_persistence_failed",
+                stage="orbital_collection",
+                error=str(meta_error))

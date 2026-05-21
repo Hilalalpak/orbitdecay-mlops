@@ -1,23 +1,39 @@
-"""
-This module defines how we package and report errors when things go wrong, ensuring
-the pipeline fails gracefully with clear diagnostic information.
-"""
+"""Error handler for Phase 1 failures."""
+
 from structlog.stdlib import BoundLogger
-from src.domains.schemas.orbital_collection_schema import Phase1Result
+from src.domain.orbital.collection.contracts.phase1_result import Phase1Result
+from src.shared.enums.failure_enums import Phase1FailureReason
 
-class ErrorPolicy:
-    def __init__(self, logger: BoundLogger, execution_mode: str) -> None:
+class Phase1ErrorHandler:
+    """Converts Phase 1 exceptions into structured Phase1Result objects."""
+
+    def __init__(self, logger: BoundLogger) -> None:
         self.logger = logger
-        self.exec_mode = execution_mode
 
-    def format(self, error, phase_duration) -> Phase1Result:
-        """Constructs a standardized dictionary containing error details and execution stats to be returned when the pipeline fails."""
-        self.logger.error(f"Phase 1 (Collection) FAILED after {phase_duration:.2f}s: {str(error)}",exc_info=True)
+    def handle(self, error: Exception, phase_duration: float) -> Phase1Result:
+        """Converts exception to Phase1Result with categorized failure reason."""
+        self.logger.error("phase1_failed",
+                          duration_sec=round(phase_duration, 2),
+                          error=str(error),
+                          exc_info=True)
+
+        reason = self._determine_reason(error)
+
         return Phase1Result(
             success=False,
             execution_time=phase_duration,
-            exec_mode=self.exec_mode,
             satellites_processed=0,
             processing_failures=0,
-            reason=f"exception_{type(error).__name__}",
+            reason=reason,
             error_message=str(error))
+
+    def _determine_reason(self, error: Exception) -> Phase1FailureReason:
+        from src.shared.quota.quota_manager import QuotaExceededError
+
+        if isinstance(error, QuotaExceededError):
+            return Phase1FailureReason.API_QUOTA_EXCEEDED
+
+        if isinstance(error, RuntimeError) and "satellite" in str(error).lower():
+            return Phase1FailureReason.NO_SATELLITES
+
+        return Phase1FailureReason.UNKNOWN_ERROR

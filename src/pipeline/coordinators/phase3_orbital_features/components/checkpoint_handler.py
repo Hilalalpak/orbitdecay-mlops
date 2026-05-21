@@ -1,22 +1,23 @@
 """
-Checkpoint handler for Phase 2 orbital processing.
+Checkpoint handler for Phase 3 feature engineering.
 Ensures idempotency by skipping redundant processing.
 """
 
+from typing import Optional, List, Any, Union
+from src.domain.orbital.features.metrics.phase3_telemetry import FeatureStrategyResult, CheckpointHitResult
 from structlog.stdlib import BoundLogger
-from src.pipeline.policies.checkpoint_guard import CheckpointGuard
-from typing import Any, Optional, List, Union
-from src.domain.orbital.processing.metrics.phase2_telemetry import ProcessingStrategyResult, CheckpointHitResult
-from src.pipeline.metadata.contracts.run_history import RunHistory
 
+from src.pipeline.policies.checkpoint_guard import CheckpointGuard
 from src.shared import ExecutionRequest
+
 from src.shared.config.config_models import PipelineConfigModel
 from src.pipeline.contracts import ExecutionDecision
+from src.pipeline.metadata import MetadataService
+from src.pipeline.metadata.contracts.run_history import RunHistory
 
-
-class CheckpointHandler:
+class FeatureCheckpointHandler:
     """
-    Manages checkpoints and execution state for Phase 2.
+    Manages checkpoints and execution state for Phase 3.
     Handles request creation, checkpoint validation, and lineage recording.
     """
 
@@ -24,41 +25,45 @@ class CheckpointHandler:
                  checkpoint_guard: CheckpointGuard,
                  pipeline_config: PipelineConfigModel,
                  logger: BoundLogger,
-                 metadata_service) -> None:
+                 metadata_service: MetadataService) -> None:
 
         self.checkpoint_guard = checkpoint_guard
-        self.logger = logger
         self.pipeline_config = pipeline_config
+        self.logger = logger
         self.metadata_service = metadata_service
 
-    def create_request(self, processing_manifest: List[str]) -> Optional[Any]:
+    def create_request(self, manifest_files: List[str]) -> Optional[Any]:
+        """
+        Creates ExecutionRequest for Phase 3 with feature version suffix.
+        Returns None if creation fails.
+        """
         try:
             request = ExecutionRequest.from_config(
                 pipeline_config=self.pipeline_config,
-                input_data_type="orbital_raw",
-                source="orbital_processor",
-                processing_stage="orbital_processing",
-                manifest=processing_manifest)
+                input_data_type='orbital_cleaned',
+                source="feature_generator",
+                processing_stage="orbital_features",
+                manifest=manifest_files)
 
-            request.hash = f"{request.hash}_process_v1"
+            request.hash = f"{request.hash}_features_v1"
             return request
 
         except Exception as e:
-            self.logger.error(f"Failed to create Phase 2 request: {e}", exc_info=True)
+            self.logger.error("phase3_request_creation_failed", error=str(e))
             return None
 
     def check_and_maybe_skip(self, request: ExecutionRequest) -> ExecutionDecision:
-        """Checks checkpoint to determine if processing can be skipped."""
+        """Checks for existing checkpoint, returns decision to skip or execute."""
         return self.checkpoint_guard.evaluate(request)
 
     def persist_execution_lineage(
             self,
-            stats: Union[ProcessingStrategyResult, CheckpointHitResult],
+            stats: Union[FeatureStrategyResult, CheckpointHitResult],
             decision: ExecutionDecision,
             request: ExecutionRequest) -> None:
         """
-        Persists execution metadata for checkpoint reuse and lineage tracking.
-        Fail-safe: metadata errors don't break the pipeline.
+        Persists execution metadata for checkpoint/lineage tracking.
+        Fail-safe - metadata errors won't break the pipeline.
         """
         try:
             records_processed = (stats.stats.successfully_processed
@@ -79,15 +84,13 @@ class CheckpointHandler:
                 })
 
             self.metadata_service.record_collection_execution(record)
-
             self.logger.debug(
                 "metadata_persisted",
-                context="phase2_processing",
+                context="phase3_features",
                 records=records_processed)
 
         except Exception as meta_error:
             self.logger.warning(
                 "metadata_persistence_failed",
-                stage="orbital_processing",
+                stage="orbital_features",
                 error=str(meta_error))
-

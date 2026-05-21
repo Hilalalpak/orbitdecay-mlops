@@ -1,124 +1,117 @@
 """
-Coordinates the end-to-end orbit processing workflow. It prepares inputs, selects
-the right components, and keeps the pipeline moving in the correct order.
+Phase 2 coordinator for orbital data processing.
+Orchestrates batch loading, parallel processing, and checkpoint persistence.
 """
-import time
-from typing import Dict, Any, Optional, List
 
+from uuid import UUID
+
+from typing import List, Optional
 from structlog.stdlib import BoundLogger
-from src.domains.schemas.orbital_processing_schema import Phase2Result
+
+from src.domain.orbital.processing.contracts.phase2_result import Phase2Result
+from src.shared.enums.failure_enums import Phase2FailureReason
+from src.domain.orbital.processing.metrics.phase2_telemetry import ProcessingStrategyResult, CheckpointHitResult
+
+from src.pipeline.contracts.execution_lifecycle import ExecutionStatus
 from src.pipeline.coordinators.phase2_orbital_processing.components.checkpoint_handler import CheckpointHandler
 from src.pipeline.coordinators.phase2_orbital_processing.components.executor import Executor
-from src.pipeline.coordinators.phase2_orbital_processing.components.grouper import GroupResolver
-from src.pipeline.coordinators.phase2_orbital_processing.components.request import RequestBuilder
+from src.domain.orbital.processing.repositories.orbital_batch_repository import OrbitalBatchRepository
+from src.pipeline.metadata.service import MetadataService
+from src.pipeline.metadata.contracts.dataset_metadata import DatasetMetadata
+from src.pipeline.contracts.execution_lifecycle import ExecutionMode
 
 class OrbitProcessingCoordinator:
+    """
+    Phase 2 coordinator for orbital data processing.
+    Handles checkpoint validation, execution delegation, and metadata persistence.
+    """
 
     def __init__(self,
                  logger: BoundLogger,
-                 request_builder: RequestBuilder,
                  checkpoint_handler: CheckpointHandler,
-                 grouper: GroupResolver,
                  executor: Executor,
+                 data_repository: OrbitalBatchRepository,
                  max_workers: int,
-                 target_date: Optional[str] = None) -> None:
+                 metadata_service: Optional[MetadataService] = None) -> None:
 
         self.logger = logger
-        self.date = target_date
         self.max_workers = max_workers
 
-        self.request = request_builder
-        self.checkpoint = checkpoint_handler
-        self.grouper = grouper
+        self.checkpoint_handler = checkpoint_handler
         self.executor = executor
+        self.data_repository = data_repository
+        self.metadata_service = metadata_service
 
     def run(self,
-            collection_hash: str,
-            batch_files_manifest: Optional[List[str]] = None,
-            data: Optional[List[Dict]] = None) -> Phase2Result:
-        """Main entry point for Phase 2 orbital processing (behavior unchanged)."""
-        start_time = time.time()
-
-        # Build phase request object
-        request = self.request.build_request(collection_hash)
-
-        if request is None:
+            processing_manifest: List[str],
+            is_incremental: bool = False,
+            run_id: Optional[UUID] = None) -> Phase2Result:
+        """
+        Executes Phase 2 orbital processing pipeline.
+        Returns Phase2Result with success status and metadata.
+        """
+        if not processing_manifest:
+            self.logger.error("phase2_aborted_no_input")
             return Phase2Result(
-                successfully_processed=0,
-                processing_failures=0,
-                reason='hash_creation_failed',
-                execution_time=time.time() - start_time)
+                success=False,
+                execution_status=ExecutionStatus.FAILED,
+                request_hash="unknown",
+                reason=Phase2FailureReason.NO_INPUT_DATA)
 
-        # Cache lookup
-        cached_stats = self.checkpoint.check_and_maybe_skip(request)
-        if cached_stats is not None:
-            return cached_stats
+        request = self.checkpoint_handler.create_request(processing_manifest)
+        if not request:
+            return Phase2Result(
+                success=False,
+                execution_status=ExecutionStatus.FAILED,
+                request_hash="unknown",
+                reason=Phase2FailureReason.HASH_CREATION_FAILED)
 
-        max_workers = self.max_workers
-        self.logger.info(f"Using {max_workers} parallel workers for processing satellite groups.")
+        execution_decision = self.checkpoint_handler.check_and_maybe_skip(request)
 
-        success_count = 0
-        fail_count = 0
+        if execution_decision.mode == ExecutionMode.REUSE:
+            self.logger.debug("phase2_skipped_cached", hash=request.hash[:8])
+            strategy_result = CheckpointHitResult(produced_manifest=execution_decision.produced_manifest)
+            execution_status = ExecutionStatus.SKIPPED
 
-        # Incremental mode (data provided directly)
-        if data:
-            self.logger.info(f"Processing {len(data)} records from RAM (Incremental Mode)...")
 
-            grouped = self.grouper.group_by_sat(data)
-            s, f = self.executor.process_grouped_data(grouped, max_workers)
-            success_count += s
-            fail_count += f
-
-        # Batch Mode (files from Phase 1)
-        elif batch_files_manifest:
-            self.logger.info(f"Starting Phase 2 (Orbit Process) for {len(batch_files_manifest)} batch files...")
-
-            for i, batch_file in enumerate(batch_files_manifest):
-                self.logger.info(f"Processing batch file {i + 1}/{len(batch_files_manifest)}: {batch_file}...")
-
-                try:
-                    batch_data = self.checkpoint.load_batch_data(batch_file)
-
-                    if not batch_data:
-                        self.logger.warning(f"Batch file {batch_file} was empty or failed to load. Skipping.")
-                        continue
-
-                    grouped = self.grouper.group_by_sat(batch_data)
-                    if not grouped:
-                        self.logger.warning(f"Batch file {batch_file} contained no groupable data. Skipping.")
-                        continue
-
-                    s, f = self.executor.process_grouped_data(grouped, max_workers)
-                    success_count += s
-                    fail_count += f
-
-                except Exception as e:
-                    self.logger.error(f"Failed to load or process batch file {batch_file}: {e}", exc_info=True)
-                    fail_count += 1
-
-                self.logger.info(f"Batch file {i + 1} complete.")
-
-        # No input
         else:
-            self.logger.error("Phase 2 'run' was called without 'data' or 'batch_files_manifest'. Aborting.")
-            return Phase2Result(
-                successfully_processed=0,
-                processing_failures=1,
-                reason='no_input_data',
-                execution_time=time.time() - start_time)
+            self.logger.debug("phase2_started", batch_count=len(processing_manifest))
 
-        self.logger.info(f"Orbital processing complete. {success_count} satellites succeeded, {fail_count} failed.")
+            exec_stats, produced_manifest = self.executor.execute_manifest(
+                processing_manifest, is_incremental)
 
-        # Build final result
-        stats: Dict[str, Any] = {
-            'successfully_processed': success_count,
-            'processing_failures': fail_count,
-            'processing_stage': 'orbital_data_processing',
-            'batches_processed': len(batch_files_manifest) if batch_files_manifest else 0
-        }
+            is_success = exec_stats.successfully_processed > 0 and exec_stats.processing_failures < 10000
+            execution_status = ExecutionStatus.COMPLETED if is_success else ExecutionStatus.FAILED
 
-        # Cache + metadata save
-        self.checkpoint.save_checkpoint(request, stats)
-        return Phase2Result(
-            **stats,
-            execution_time=time.time() - start_time)
+            strategy_result = ProcessingStrategyResult(
+                execution_status=execution_status,
+                stats=exec_stats,
+                produced_manifest=produced_manifest)
+
+        self.checkpoint_handler.persist_execution_lineage(strategy_result,
+                                                          execution_decision,
+                                                          request)
+
+        result = Phase2Result(
+            success=execution_status in [ExecutionStatus.COMPLETED, ExecutionStatus.SKIPPED],
+            execution_status=execution_status,
+            request_hash=request.hash,
+            is_incremental=is_incremental,
+            produced_manifest=strategy_result.produced_manifest,
+            reason=None if execution_status == ExecutionStatus.COMPLETED else Phase2FailureReason.PROCESSING_FAILED)
+
+        if self.metadata_service and run_id:
+            self.metadata_service.record_dataset(DatasetMetadata(
+                pipeline_run_id=run_id,
+                phase_id="phase2",
+                execution_mode=execution_decision.mode,
+                decision_reason=execution_decision.reason,
+                status=execution_status,
+                output_data_type="orbital_cleaned",
+                artifact_name="normalized_orbits",
+                manifest_files=result.produced_manifest,
+                record_count=(strategy_result.stats.successfully_processed
+                              if isinstance(strategy_result, ProcessingStrategyResult)
+                              else strategy_result.successfully_processed)))
+
+        return result
