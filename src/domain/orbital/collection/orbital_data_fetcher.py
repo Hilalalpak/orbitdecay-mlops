@@ -12,7 +12,7 @@ import ijson
 from structlog.stdlib import BoundLogger
 from requests import Session
 
-from src.shared.api_compliance.quota_manager import ApiQuotaManager
+from src.shared.quota.quota_manager import ApiQuotaManager
 from src.domain.orbital.collection.api_clients.spacetrack_client import SpaceTrackClient
 from src.domain.orbital.collection.validation.telemetry_validator import TelemetryValidator
 from src.domain.orbital.collection.metrics.batch_telemetry import BatchCollectionStats
@@ -40,6 +40,8 @@ class OrbitalDataFetcher:
                                start_date: str,
                                last_epoch: Optional[datetime]) -> Iterator[List[SatelliteRecord]]:
 
+        targets = satellite_ids
+
         processor = lambda session, batch_ids, batch_num, total_batches: (
             self._process_incremental_batch(session,
                                             batch_ids,
@@ -49,10 +51,10 @@ class OrbitalDataFetcher:
                                             last_epoch))
 
         return self._iter_batches(
-            target_ids=satellite_ids,
+            target_ids=targets,
             batch_size=batch_size,
             log_start_msg="incremental_sync_started",
-            log_start_kwargs={"target_count": len(satellite_ids), "start_date": start_date},
+            log_start_kwargs={"target_count": len(targets), "start_date": start_date},
             processor_func=processor)
 
     def _process_incremental_batch(self,
@@ -330,11 +332,12 @@ class OrbitalDataFetcher:
             return False
 
     # Helpers
-    def _throttle(self) -> None:
+    def _throttle(self) -> Dict[str, Any]:
         status = self.quota_manager.check_availability()
         delay = self.quota_manager.calc_delay(status.get("status", "good"))
         if delay > 0:
             time.sleep(delay)
+        return status
 
     def _record_failure(self,
                         stats: BatchCollectionStats,

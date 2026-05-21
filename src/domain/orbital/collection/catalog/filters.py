@@ -6,19 +6,17 @@ from src.domain.orbital.collection.catalog.catalog_schema import SatelliteCatego
 
 def is_orbit_duration_valid(item: Dict[str, Any], category: SatelliteCategory, min_orbit_days: int) -> bool:
     """Validates that satellite orbited for minimum required duration."""
-    launch_str = item.get('LAUNCH')
-    if not launch_str:
-        return False
+    launch_str = item['LAUNCH']
 
     try:
+
         launch = datetime.strptime(launch_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
 
         if category == 'calibration':
             end_date = datetime.now(timezone.utc)
         else:
-            decay_str = item.get('DECAY')
-            if not decay_str:
-                return False
+            decay_str = item['DECAY']
+
             end_date = datetime.strptime(decay_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
 
         days = (end_date - launch).days

@@ -10,7 +10,7 @@ from typing import List, Optional, Dict, Any, cast, Tuple
 from structlog.stdlib import BoundLogger
 
 from src.shared.config.config_interfaces import CatalogConfigInterface
-from src.shared.api_compliance.quota_manager  import ApiQuotaManager
+from src.shared.quota.quota_manager  import ApiQuotaManager
 from .catalog_repository import SatCatalogRepository
 from src.domain.orbital.collection.api_clients.spacetrack_client import SpaceTrackClient
 from src.domain.orbital.collection.catalog.catalog_schema import SatelliteCategory
@@ -160,6 +160,9 @@ class SatCatalogService:
 
         for regime in active_regimes:
             pool = regime_pools[regime]
+            if not pool:
+                continue
+
             sample = random.sample(pool, min(per_regime, len(pool)))
             selected_target_items.extend(sample)
 
@@ -237,6 +240,35 @@ class SatCatalogService:
                 pools["transition"].append(item)
 
         return pools
+
+    def _split_calibration_by_altitude(self, calibration_pool: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+        """Splits calibration sats by altitude using orbital period as proxy."""
+        bands = {"low": [],  # ~300-400 km
+                "mid": [],  # ~400-500 km
+                "high": []}  # 500+ km
+
+        for item in calibration_pool:
+            p = item.get("period")
+
+            if not p:
+                continue
+
+            try:
+                p = float(p)
+            except (ValueError, TypeError):
+                continue
+
+            low_max = self.calibration_period_bands.get("low_max", 95)
+            mid_max = self.calibration_period_bands.get("mid_max", 100)
+
+            if p < low_max:
+                bands["low"].append(item)
+            elif p < mid_max:
+                bands["mid"].append(item)
+            else:
+                bands["high"].append(item)
+
+        return bands
 
     def update_seed(self, new_seed: int) -> None:
         """Updates random seed and clears cache to force re-selection."""

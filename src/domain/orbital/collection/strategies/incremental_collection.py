@@ -47,8 +47,10 @@ class IncrementalCollector:
         # only active sats produce new TLEs
         target_ids = [str(sat_id) for sat_id in request.active_ids]
 
-        # TODO: wire last_epoch from ExecutionRequest to avoid always refetching 24hr window
-        last_epoch_dt: Optional[datetime] = None
+        # TODO: last_epoch should come from ExecutionRequest instead of hardcoded default
+        # right now we always use 24hr overlap which wastes API quota
+        raw_epoch = None
+        last_epoch_dt = self._parse_epoch(raw_epoch)
 
         start_date_str = self._calculate_start_date(self.overlap_hours)
 

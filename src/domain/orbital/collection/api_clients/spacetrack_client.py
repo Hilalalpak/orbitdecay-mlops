@@ -104,7 +104,7 @@ class SpaceTrackClient:
     def fetch_updates_since(self,
                             session: Session,
                             norad_ids: List[str],
-                            start_date: str) -> List[Dict[str, Any]]:
+                            start_date: str) -> List[Dict]:
 
         ids_str = ','.join(map(str, norad_ids))
         endpoint = self.config.get_space_track_endpoint('historical_data')
@@ -123,7 +123,7 @@ class SpaceTrackClient:
     def fetch_data_by_query(self,
                             session: Session,
                             query_path: str,
-                            timeout: float) -> List[Dict[str, Any]]:
+                            timeout: float) -> List[Any]:
         """Executes an arbitrary Space-Track query. Used for catalog-style ad-hoc requests."""
         return self._execute_query(session, query_path, timeout, context="generic_query")
 
@@ -134,7 +134,7 @@ class SpaceTrackClient:
                        session: Session,
                        query_path: str,
                        timeout: float,
-                       context: str) -> List[Dict[str, Any]]:
+                       context: str) -> List[Any]:
         """Executes an arbitrary Space-Track query. Used for catalog-style requests."""
 
         url = f"{self.base_url}/{self.query_base}/{query_path}"
@@ -155,7 +155,7 @@ class SpaceTrackClient:
 
             data = response.json()
             self.logger.debug("api_response_received", context=context, records=len(data))
-            return cast(List[Dict[str, Any]], data)
+            return cast(List[Any], data)
 
         except requests.exceptions.Timeout:
             self.logger.error("api_timeout", context=context, timeout_setting=timeout)
