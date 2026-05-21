@@ -1,7 +1,3 @@
-"""
-Pydantic model representing a single pipeline run row in pipeline_runs.
-"""
-
 from pydantic import BaseModel
 from datetime import datetime
 from uuid import UUID
