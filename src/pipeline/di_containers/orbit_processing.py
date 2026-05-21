@@ -1,20 +1,18 @@
+
 """
-Phase 2 container. Takes batch files from Phase 1 and runs them through
-the orbital processor (propagation + classification) per satellite in
-parallel. Checkpoint-aware — skips if results already exist.
+This container assembles components for processing raw TLE data into cleaned,
+classified, and enriched orbital records. It handles batch processing, grouping
+by satellite, and applying orbital mechanics calculations and classifications.
 """
 
 from dependency_injector import containers, providers
 
-from ..coordinators.phase2_orbital_processing.components.grouper import GroupResolver
 from ..coordinators.phase2_orbital_processing.components.executor import Executor
-from ..coordinators.phase2_orbital_processing.components.request import RequestBuilder
 from ..coordinators.phase2_orbital_processing.components.checkpoint_handler import CheckpointHandler
-from ..coordinators.phase2_orbital_processing.components.batch_data_loader import BatchDataLoader
+from src.domain.orbital.processing.engines.record_validator import OrbitRecordValidator
 
-from src.domains.orbital_data.processing.orbital_classifier import OrbitalClassifier
-from src.domains.orbital_data.processing.tle_data_processor import OrbitProcessor
-from ..management.storage_manager import StorageManager
+from src.domain.orbital.processing.core.tle_data_processor_factory import OrbitProcessorFactory
+from src.domain.orbital.processing.repositories.orbital_batch_repository import OrbitalBatchRepository
 from ..coordinators.phase2_orbital_processing.orbital_processing_coordinator import OrbitProcessingCoordinator
 
 
@@ -23,57 +21,48 @@ class OrbitProcessingContainer(containers.DeclarativeContainer):
     core = providers.DependenciesContainer()
     config = providers.Configuration()
 
-    classifier = providers.Singleton(
-        OrbitalClassifier,
-        domain_config=config.domain)
 
-    orbital_processor = providers.Singleton(
-        OrbitProcessor,
+    record_validator = providers.Singleton(
+        OrbitRecordValidator,
+        logger=core.logger.provided.bind.call(module="rec.validator"))
+
+    orbit_processor_factory = providers.Factory(
+        OrbitProcessorFactory,
         processing_config=config.processing,
+        domain_config=config.domain,
+        record_validator=record_validator,
         environment_name=config.logging.provided.get_environment_name.call(),
-        logger=core.logger.provided.getChild.call("orbit.processor"),
-        classifier=classifier)
+        logger=core.logger.provided.bind.call(module="orbit.processor"))
 
-    grouper = providers.Singleton(
-        GroupResolver,
-        logger=core.logger.provided.getChild.call("orbit.grouper"))
-
-    storage_manager = providers.Singleton(
-        StorageManager,
+    # For persisting processed data
+    data_repository = providers.Singleton(
+        OrbitalBatchRepository,
         pipeline_config=config.pipeline,
-        logger=core.logger.provided.getChild.call("storage.manager"),
+        logger=core.logger.provided.bind.call(module="data_repo"),
         storage_adapter=core.storage_adapter)
 
-    request_builder = providers.Singleton(
-        RequestBuilder,
-        pipeline_config=config.pipeline,
-        logger=core.logger.provided.getChild.call("service.request"),
-        execution_mode=config.pipeline.execution_mode)
-
-    batch_data_loader = providers.Singleton(
-        BatchDataLoader,
-        pipeline_config=config.pipeline,
-        storage_adapter=core.storage_adapter,
-        logger=core.logger.provided.getChild.call("orbit.batch_loader"))
-
+    # Checkpoint handler for idempotent processing
     checkpoint_handler = providers.Singleton(
         CheckpointHandler,
-        checkpoint_manager=core.checkpoint_manager,
-        batch_data_loader=batch_data_loader,
-        logger=core.logger.provided.getChild.call("service.checkpoint_handler"))
+        checkpoint_guard=core.checkpoint_guard,
+        logger=core.logger.provided.bind.call(module="service.checkpoint_handler"),
+        pipeline_config=config.pipeline,
+        metadata_service=core.metadata_service)
 
+    # Processing executor for parallel satellite processing
     executor = providers.Singleton(
         Executor,
-        orbital_data_processor=orbital_processor,
-        storage_manager=storage_manager,
-        logger=core.logger.provided.getChild.call("engine.runner"))
+        orbit_processor_factory=orbit_processor_factory,
+        data_repository=data_repository,
+        logger=core.logger.provided.bind.call(module="engine.runner"),
+        max_workers=config.processing.provided.get_max_workers.call())
 
+    # Phase coordinator orchestrating processing workflow
     coordinator = providers.Singleton(
         OrbitProcessingCoordinator,
-        logger=core.logger.provided.getChild.call("process.orbit"),
-        request_builder=request_builder,
+        logger=core.logger.provided.bind.call(module="process.orbit"),
         checkpoint_handler=checkpoint_handler,
-        grouper=grouper,
         executor=executor,
+        data_repository=data_repository,
         max_workers=config.processing.provided.get_max_workers.call(),
-        target_date=config.pipeline.date)
+        metadata_service=core.metadata_service)

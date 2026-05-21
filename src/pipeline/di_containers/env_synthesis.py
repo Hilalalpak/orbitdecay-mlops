@@ -1,74 +1,70 @@
 """
-Phase 6 container. Merges the normalized environmental sources into a
-single unified dataset and saves it. Checkpoint-aware.
+Provides the data merger, performance analytics, storage management,
+and the main coordinator responsible for building the unified space-weather dataset.
 """
 
 from dependency_injector import containers, providers
 
-from src.domains.space_weather.feature_synthesis.multi_source_merger import EnvironmentDataMerger
+from src.domain.weather.feature_synthesis.multi_source_merger import EnvironmentDataMerger
+from src.domain.weather.feature_synthesis.repository.env_synthesis_repository import EnvSynthesisRepository
 
-from src.pipeline.management.storage_manager import StorageManager
-from src.pipeline.management.performance_monitor import PerformanceMonitor
-from ..coordinators.phase5_environment_synthesis.env_feature_synthesis import EnvSynthesisCoordinator
+from src.pipeline.monitoring.performance_monitor import PerformanceMonitor
+from ..coordinators.phase6_environment_synthesis.env_feature_synthesis import EnvSynthesisCoordinator
 
-from ..coordinators.phase5_environment_synthesis.components.request_builder import SynthesisRequestBuilder
-from ..coordinators.phase5_environment_synthesis.components.executor import SynthesisExecutor
-from ..coordinators.phase5_environment_synthesis.components.checkpoint_handler import P5CheckpointHandler
-from ..coordinators.phase5_environment_synthesis.components.persistence import SynthesisPersistence
+from ..coordinators.phase6_environment_synthesis.components.request_builder import SynthesisRequestBuilder
+from ..coordinators.phase6_environment_synthesis.components.executor import SynthesisExecutor
+from ..coordinators.phase6_environment_synthesis.components.checkpoint_handler import P6CheckPointHandler
 
 class EnvironmentSynthesisContainer(containers.DeclarativeContainer):
 
     core = providers.DependenciesContainer()
     config = providers.Configuration()
 
-    storage_manager = providers.Singleton(
-        StorageManager,
-        pipeline_config=config.pipeline,
-        logger=core.logger.provided.getChild.call("storage.manager"),
-        storage_adapter=core.storage_adapter)
 
     performance_monitor = providers.Singleton(
         PerformanceMonitor,
         processing_config=config.processing,
         pipeline_config=config.pipeline,
         logging_config=config.logging,
-        logger=core.logger.provided.getChild.call("performance"),
+        logger=core.logger.provided.bind.call(module="performance"),
         quota_manager=core.quota_manager,
         storage_adapter=core.storage_adapter)
 
+    # Unified repository
+    repository = providers.Singleton(
+        EnvSynthesisRepository,
+        pipeline_config=config.pipeline,
+        storage_adapter=core.storage_adapter,
+        logger=core.logger.provided.bind.call(module="synth.repository"))
+
+    # Data merger
     data_merger = providers.Singleton(
         EnvironmentDataMerger,
-        pipeline_config=config.pipeline,
-        processing_config=config.processing,
-        logger=core.logger.provided.getChild.call("env.merger"),
-        storage_adapter=core.storage_adapter)
+        repository=repository,
+        logger=core.logger.provided.bind.call(module="env.merger"))
 
+    # Synthesis components
     request_builder = providers.Singleton(
         SynthesisRequestBuilder,
         pipeline_config=config.pipeline,
-        execution_mode=config.pipeline.execution_mode,
-        logger=core.logger.provided.getChild.call("synth.req_builder"))
+        logger=core.logger.provided.bind.call(module="synth.req_builder"))
 
     executor = providers.Singleton(
         SynthesisExecutor,
         environment_merger=data_merger,
-        logger=core.logger.provided.getChild.call("synth.executor"))
+        logger=core.logger.provided.bind.call(module="synth.executor"))
 
     checkpoint_handler = providers.Singleton(
-        P5CheckpointHandler,
-        checkpoint_manager=core.checkpoint_manager,
-        logger=core.logger.provided.getChild.call("synth.cache"))
+        P6CheckPointHandler,
+        checkpoint_guard=core.checkpoint_guard,
+        logger=core.logger.provided.bind.call(module="synth.cache"))
 
-    persistence = providers.Singleton(
-        SynthesisPersistence,
-        storage_manager=storage_manager,
-        logger=core.logger.provided.getChild.call("synth.checkpoint_handler"))
-
+    # Phase coordinator
     coordinator = providers.Singleton(
         EnvSynthesisCoordinator,
-        logger=core.logger.provided.getChild.call("env.synthesis"),
+        logger=core.logger.provided.bind.call(module="env.synthesis"),
         request_builder=request_builder,
         executor=executor,
         checkpoint_handler=checkpoint_handler,
-        persistence=persistence,
-        execution_mode=config.pipeline.execution_mode)
+        repository=repository,
+        metadata_service=core.metadata_service)
