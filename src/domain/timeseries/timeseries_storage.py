@@ -40,7 +40,7 @@ class TimeSeriesStorage:
 
 
     def get_satellite_list(self) -> List[str]:
-        """S3'teki tüm recursive yolları tarar."""
+        """Scans all recursive paths in S3."""
         bucket = self.pipeline_config.get_s3_bucket("orbit-data")
         prefix = f"{self.pipeline_config.get_s3_prefix('omm_leo')}/"
         response = self.storage.list_objects(bucket, prefix)
@@ -86,8 +86,8 @@ class TimeSeriesStorage:
 
     def verify_integrity(self, expected_count: int) -> bool:
         """
-        Checkpoint (önbellek) doğrulama adımı:
-        Veritabanında beklenen sayıda uydunun işlenip işlenmediğini kontrol eder.
+        Checkpoint validation step:
+        Verifies that the expected number of satellites has been processed in the database.
         """
         if self.db_engine is None:
             return False
@@ -95,23 +95,23 @@ class TimeSeriesStorage:
         try:
             from sqlalchemy import text
 
-            # Tablodaki benzersiz uydu sayısını (satellites_processed) say
+            # Count unique satellites (satellites_processed) in the table
             query = text(f"SELECT COUNT(DISTINCT norad_cat_id) FROM {self.feature_store_table}")
 
             with self.db_engine.connect() as conn:
                 actual_count = conn.execute(query).scalar()
 
-            # Veritabanında veri var mı ve beklenen sayıya ulaşıldı mı?
+            # Check if data exists in DB and the expected count has been reached
             if actual_count and actual_count >= expected_count:
                 self.logger.info(
-                    f"Integrity Check OK: Veritabanında {actual_count} uydu verisi güvende (Beklenen: {expected_count}).")
+                    f"Integrity Check OK: {actual_count} satellites in database (Expected: {expected_count}).")
                 return True
             else:
                 self.logger.warning(
-                    f"Integrity Check FAILED: DB'de {actual_count} uydu var, ancak Checkpoint {expected_count} bekliyordu.")
+                    f"Integrity Check FAILED: {actual_count} satellites in DB, but checkpoint expected {expected_count}.")
                 return False
 
         except Exception as e:
-            self.logger.error(f"Veritabanı bütünlük kontrolü sırasında hata: {e}")
-            # Tablo yoksa veya hata verirse veriyi baştan işlemek için False dön
+            self.logger.error(f"Error during database integrity check: {e}")
+            # Return False to reprocess data if table is missing or an error occurs
             return False

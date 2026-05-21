@@ -33,7 +33,7 @@ class TimeSeriesGenerator:
     def _process_single(self, key: str, env_df: pl.DataFrame) -> bool:
         sat_id = key.split("/")[-3]
 
-        self.logger.debug(f"[SAT-{sat_id}] S3 verisi yükleniyor...")
+        self.logger.debug(f"[SAT-{sat_id}] Loading S3 data...")
         orb_df = self.storage.load_satellite_orbital_data(key)
         if orb_df.is_empty():
             return False
@@ -44,28 +44,28 @@ class TimeSeriesGenerator:
             orb_df = orb_df.filter(pl.col("epoch") > pl.lit(max_epoch))
             new_rows = orb_df.height
             if orb_df.is_empty():
-                self.logger.debug(f"[SAT-{sat_id}] Yeni epoch yok, atlanıyor.")
+                self.logger.debug(f"[SAT-{sat_id}] No new epochs, skipping.")
                 return True
-            self.logger.debug(f"[SAT-{sat_id}] {before} satırdan {new_rows} yeni epoch filtrendi.")
+            self.logger.debug(f"[SAT-{sat_id}] Filtered {new_rows} new epochs from {before} rows.")
 
-        self.logger.debug(f"[SAT-{sat_id}] Atmosfer verisi ekleniyor...")
+        self.logger.debug(f"[SAT-{sat_id}] Enriching with atmospheric data...")
         enriched = self.transformer.merge_and_enrich(sat_id, orb_df, env_df)
 
-        self.logger.info(f"[SAT-{sat_id}] Veritabanına yazılıyor ({enriched.height} satır)...")
+        self.logger.info(f"[SAT-{sat_id}] Writing to database ({enriched.height} rows)...")
         success = self.storage.save_satellite_timeseries(enriched)
 
         if success:
-            self.logger.debug(f"[SAT-{sat_id}] BAŞARILI.")
+            self.logger.debug(f"[SAT-{sat_id}] SUCCESS.")
 
         return success
 
     def build_environment_dataset(self) -> pl.DataFrame:
         """
-        1) Tüm ACTIVE latest orbital_history verilerini okur
-        2) Thermometer ile günlük density üretir
-        3) Space weather ile birleştirir
-        4) Density_Dataset.parquet olarak kaydeder
-        5) Final environment dataset'i döndürür
+        1) Reads all ACTIVE latest orbital_history data
+        2) Generates daily density using thermometer calibration
+        3) Merges with space weather data
+        4) Saves as Density_Dataset.parquet
+        5) Returns the final environment dataset
         """
 
         self.logger.info("Phase-7 → Building Environment Dataset (ACTIVE + Weather)")

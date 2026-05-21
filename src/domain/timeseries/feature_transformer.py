@@ -25,7 +25,7 @@ class TimeSeriesTransformer:
             pl.col("ap_value").alias("ap_mean"),
             pl.col("rul_days").alias("days_until_decay"),
 
-            # Risk Skoru
+            # Risk Score
             pl.when(pl.col("altitude_km") < 400)
             .then((400 - pl.col("altitude_km")) / 100)
             .otherwise(0.0).alias("low_altitude_risk"),
